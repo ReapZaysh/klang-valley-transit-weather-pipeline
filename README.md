@@ -25,8 +25,11 @@ flowchart LR
         BT[("bronze_rapidkl_transit<br/>(Trips, Routes, Schedules)")]
     end
 
-    subgraph Silver["🥈 Silver Layer (Cleaned & Joined)"]
-        S[("silver_rapidkl_weather_delays<br/>(Time-aligned & Flagged)")]
+    subgraph Silver["🥈 Silver Layer (Cleaned & Validated)"]
+        direction TB
+        SW[("silver_kl_weather<br/>(Deduplicated, Validated)")]
+        ST[("silver_rapidkl_transit<br/>(Hour-aligned, In-bounds)")]
+        SQ[("silver_quarantine_transit<br/>(Dead-Letter Quarantine)")]
     end
 
     subgraph Gold["🥇 Gold Layer (Aggregates & Metrics)"]
@@ -35,14 +38,16 @@ flowchart LR
 
     W -->|requests / JSON| BW
     T -->|GTFS Static / CSV| BT
-    BW --> S
-    BT --> S
-    S --> G
+    BW --> SW
+    BT --> ST
+    BT -.->|Data Quality Faults| SQ
+    SW --> G
+    ST --> G
 ```
 
 ---
 
-## 🎯 Step 1: Bronze Layer (Raw Ingestion)
+## 🥉 Step 1: Bronze Layer (Raw Ingestion)
 
 The **Bronze Layer** ingests raw source feeds with minimal transformations into **Delta Lake**, strictly capturing raw fidelity while appending pipeline audit metadata.
 
@@ -64,21 +69,52 @@ The **Bronze Layer** ingests raw source feeds with minimal transformations into 
 
 ---
 
+## 🥈 Step 2: Silver Layer (Data Cleaning & Validation)
+
+The **Silver Layer** enforces schemas, performs data deduplication, applies geospatial boundary filtering, handles GTFS timestamp anomalies, and implements an automated **quarantine dead-letter pattern**.
+
+### 1. Filtering & Deduplication
+* **Weather:** Deduplicated on `weather_timestamp`, keeping the latest ingested observation via windowed ranking (`row_number()`).
+* **Transit:** Deduplicated on composite key `(trip_id, stop_id, stop_sequence)`, keeping the latest record.
+
+### 2. Klang Valley Bounding Box Validation
+Bus stops located outside Greater Kuala Lumpur / Klang Valley are filtered using the bounding envelope:
+* **Latitude:** `2.8°` to `3.5° N`
+* **Longitude:** `101.3°` to `101.9° E`
+
+### 3. Timestamp Alignment for Weather Joining
+* GTFS `stop_times.txt` formats scheduled arrivals/departures as strings (e.g. `08:30:00`).
+* **Midnight Rollover Handling:** GTFS allows timestamps `> 24:00:00` (e.g. `25:15:00` for 1:15 AM next service day). These are normalized with modulo-24.
+* **Hour Rounding:** Timestamps are rounded to the nearest integer hour `(0–23)` creating the `scheduled_hour_aligned` column, enabling direct analytical joins with Open-Meteo hourly weather observations.
+
+### 4. Data Quality Quarantine (`silver_quarantine_transit`)
+Records that violate data contracts are split from the main pipeline and written to `silver_quarantine_transit` with explicit `_quarantine_reason` tags:
+* Missing or empty `route_id` (`MISSING_ROUTE_ID`)
+* Negative vehicle speeds or invalid stop sequences (`NEGATIVE_SPEED_OR_SEQUENCE`)
+* Coordinates outside the Klang Valley bounding box (`OUT_OF_BOUNDS_COORDINATES`)
+
+---
+
 ## 📁 Repository Structure
 
 ```
 Klang Valley Transit & Weather Data Pipeline/
 ├── notebooks/
-│   └── 01_bronze_ingestion.py         # Databricks PySpark Ingestion Notebook
+│   ├── 01_bronze_ingestion.py         # Bronze Raw Ingestion Notebook
+│   └── 02_silver_transformation.py    # Silver Cleaning, Validation & Quarantine Notebook
 ├── src/
-│   ├── config.py                      # Coordinates, API endpoints, Delta paths
+│   ├── config.py                      # Centralized coordinates, bounding box & table names
 │   ├── utils/
 │   │   ├── __init__.py
 │   │   └── logger.py                  # Structured logging utility
-│   └── ingestion/
+│   ├── ingestion/
+│   │   ├── __init__.py
+│   │   ├── weather_ingestion.py       # Open-Meteo fetch & PySpark parser
+│   │   └── transit_ingestion.py       # data.gov.my GTFS downloader & builder
+│   └── transformation/
 │       ├── __init__.py
-│       ├── weather_ingestion.py       # Open-Meteo fetch & PySpark parser
-│       └── transit_ingestion.py       # data.gov.my GTFS downloader & builder
+│       ├── silver_weather.py          # Weather deduplication & bounds validation
+│       └── silver_transit.py          # Transit deduplication, bounding box & quarantine
 ├── scripts/
 │   └── fetch_raw_samples.py           # Local script to fetch & cache raw data samples
 ├── tests/
@@ -90,112 +126,47 @@ Klang Valley Transit & Weather Data Pipeline/
 │       └── gtfs/
 ├── requirements.txt                   # Pipeline dependencies
 ├── .gitignore                         # Delta logs, checkpoints, cache ignores
-└── README.md                          # Documentation
+└── README.md                          # Pipeline documentation
 ```
 
 ---
 
-## 🚀 How to Run on Databricks Community Edition
+## 🚀 How to Run on Databricks
 
-### 1. Import the Notebook into Databricks
-1. Log in to [Databricks Community Edition](https://community.cloud.databricks.com/).
-2. In the sidebar, navigate to **Workspace** -> **Users** -> your username.
-3. Click the dropdown arrow next to your workspace folder and select **Import**.
-4. Choose **File** and upload [notebooks/01_bronze_ingestion.py](file:///d:/SYAH/Solo%20Project/Klang%20Valley%20Transit%20&%20Weather%20Data%20Pipeline/notebooks/01_bronze_ingestion.py).
-   *(Alternatively, link this GitHub repository directly via **Databricks Repos**).*
+### 1. Link Repo via Databricks Repos / Git Folders
+1. In your Databricks workspace sidebar, open **Workspace → Repos (or Git Folders)**.
+2. Click **Add Repo** and paste your GitHub repository URL:
+   `https://github.com/ReapZaysh/klang-valley-transit-weather-pipeline.git`
+3. All notebooks and `src/` modular code will be directly available in your workspace.
 
-### 2. Attach Cluster & Run
-1. Start your Databricks cluster (Runtime **13.3 LTS** or **14.x** with Spark 3.5+).
-2. Open `01_bronze_ingestion`.
-3. Adjust widget parameters at the top if desired:
-   - `start_date`: e.g., `2024-01-01`
-   - `end_date`: e.g., `2024-01-07`
-   - `transit_category`: `rapid-bus-kl`
-4. Click **Run All**.
+### 2. Run Bronze Ingestion Notebook
+1. Open `notebooks/01_bronze_ingestion`.
+2. Configure parameters via the interactive widgets (e.g. `start_date`, `end_date`, `transit_category`).
+3. Click **Run All** to populate `bronze_kl_weather` and `bronze_rapidkl_transit`.
 
-### 3. Verify Delta Tables
-Query the tables in any Databricks SQL or Python cell:
-```sql
--- Weather summary
-SELECT 
-    observation_time, 
-    temperature_2m, 
-    precipitation, 
-    rain 
-FROM bronze_kl_weather 
-WHERE precipitation > 0 
-ORDER BY precipitation DESC 
-LIMIT 10;
-
--- Transit trip distribution
-SELECT 
-    route_short_name, 
-    route_long_name, 
-    COUNT(DISTINCT trip_id) AS trips,
-    COUNT(stop_sequence) AS scheduled_stops
-FROM bronze_rapidkl_transit 
-GROUP BY route_short_name, route_long_name 
-ORDER BY scheduled_stops DESC 
-LIMIT 10;
-```
+### 3. Run Silver Transformation Notebook
+1. Open `notebooks/02_silver_transformation`.
+2. Click **Run All** to execute deduplication, bounding box validation, and quarantine routing.
+3. The notebook writes clean data to `silver_kl_weather` and `silver_rapidkl_transit`, while routing bad records to `silver_quarantine_transit`.
 
 ---
 
-## 💻 Local Exploration & Testing
+## 📊 Data Dictionary
 
-To test the data fetching logic locally without spinning up a Spark cluster:
+### 🥉 Bronze Tables
+* `bronze_kl_weather`: Raw hourly Open-Meteo weather logs (`observation_time`, `temperature_2m`, `precipitation`, `rain`, etc.).
+* `bronze_rapidkl_transit`: Raw linked GTFS feeds (`route_id`, `trip_id`, `stop_id`, `stop_name`, `stop_lat`, `stop_lon`, `arrival_time`, etc.).
 
-```bash
-# 1. Install dependencies
-pip install -r requirements.txt
-
-# 2. Fetch raw sample data into data/raw/
-python scripts/fetch_raw_samples.py
-
-# 3. Run unit tests
-python -m unittest tests/test_raw_ingestion.py
-```
+### 🥈 Silver Tables
+* `silver_kl_weather`: Cleaned, validated, deduplicated hourly weather readings within Malaysia meteorological thresholds.
+* `silver_rapidkl_transit`: Cleaned transit schedules with validated Klang Valley GPS bounds and `scheduled_hour_aligned`.
+* `silver_quarantine_transit`: Invalid/corrupted records separated with diagnostic column `_quarantine_reason` and `_quarantined_at`.
 
 ---
 
-## 📊 Bronze Data Dictionary
+## ⏭️ Next Step: Gold Layer (Analytical Aggregates & Rain Impact)
 
-### `bronze_kl_weather`
-| Column Name | Type | Description |
-| :--- | :--- | :--- |
-| `observation_time` | `timestamp` | Hourly timestamp in `Asia/Kuala_Lumpur` (UTC+8) |
-| `temperature_2m` | `double` | Air temperature at 2m (°C) |
-| `precipitation` | `double` | Total precipitation (rain + showers) in mm |
-| `rain` | `double` | Large scale rain (mm) |
-| `weather_code` | `integer` | WMO Weather interpretation code |
-| `relative_humidity_2m` | `double` | Relative humidity (%) |
-| `wind_speed_10m` | `double` | Wind speed at 10m (km/h) |
-| `_ingested_at` | `string` | Ingestion timestamp (ISO 8601 UTC) |
-| `_source_api` | `string` | API endpoint origin |
-
-### `bronze_rapidkl_transit`
-| Column Name | Type | Description |
-| :--- | :--- | :--- |
-| `route_id` | `string` | Unique identifier for bus route |
-| `route_short_name` | `string` | Public bus line number (e.g. `750`, `772`, `B100`) |
-| `route_long_name` | `string` | Route description / endpoints (e.g. `BRT USJ 7 - Setia Jaya`) |
-| `trip_id` | `string` | Specific scheduled trip identifier |
-| `service_id` | `string` | Day-of-week service schedule binding (`weekday`, `weekend`) |
-| `direction_id` | `integer` | Outbound (0) or Inbound (1) direction |
-| `stop_id` | `string` | Unique bus stop code |
-| `stop_name` | `string` | Bus stop / station name |
-| `stop_lat` | `double` | Bus stop latitude |
-| `stop_lon` | `double` | Bus stop longitude |
-| `arrival_time` | `string` | Scheduled arrival time (`HH:MM:SS`) |
-| `departure_time` | `string` | Scheduled departure time (`HH:MM:SS`) |
-| `stop_sequence` | `integer` | Order of stops for the trip |
-| `_ingested_at` | `timestamp` | Databricks ingestion execution timestamp |
-| `_feed_category` | `string` | Prasarana feed category (`rapid-bus-kl`) |
-
----
-
-## ⏭️ Next Step: Silver Layer (Transformation & Join)
-In Step 2, we will:
-1. Parse transit timestamps to align scheduled stops with weather observation hours.
-2. Flag heavy rain conditions (e.g. `precipitation > 5.0 mm/hr`).
-3. Compute headway consistency and schedule metrics across rainy vs. clear conditions.
+In **Step 3 (Gold Layer)**, we will:
+1. Join `silver_rapidkl_transit` with `silver_kl_weather` on date and `scheduled_hour_aligned`.
+2. Classify rain event intensities (e.g. *Clear*, *Light Rain*, *Heavy Downpour / Thunderstorm*).
+3. Compute schedule density, route vulnerability, and rain-impact performance metrics across Klang Valley transit corridors.
