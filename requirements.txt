@@ -1,0 +1,13 @@
+# Core HTTP & API requests
+requests>=2.31.0
+urllib3>=2.0.0
+
+# PySpark & Delta Lake (Standard for Databricks runtime 13.x / 14.x)
+pyspark>=3.5.0
+delta-spark>=3.0.0
+
+# Testing & Quality
+pytest>=7.4.0
+
+# Environment & utilities
+python-dotenv>=1.0.0
