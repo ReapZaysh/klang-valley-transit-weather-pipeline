@@ -1,4 +1,4 @@
-# 🚌🌧️ Klang Valley Transit & Weather Data Pipeline
+# Klang Valley Transit & Weather Data Pipeline
 
 [![Databricks](https://img.shields.io/badge/Platform-Databricks%20Community%20Edition-FF3621?logo=databricks&logoColor=white)](#)
 [![Delta Lake](https://img.shields.io/badge/Storage-Delta%20Lake%20(Medallion)-00ADD8?logo=apachespark&logoColor=white)](#)
@@ -9,30 +9,30 @@ A production-grade Databricks PySpark pipeline built on the **Medallion Architec
 
 ---
 
-## 🏗️ Architecture & Medallion Pattern
+## Architecture & Medallion Pattern
 
 ```mermaid
 flowchart LR
-    subgraph Raw_Sources["📡 External Feeds"]
+    subgraph Raw_Sources["External Feeds"]
         direction TB
         W["Open-Meteo API<br/>(KL Hourly Weather)"]
         T["data.gov.my API<br/>(RapidKL GTFS Static)"]
     end
 
-    subgraph Bronze["🥉 Bronze Layer (Raw Delta)"]
+    subgraph Bronze["Bronze Layer (Raw Delta)"]
         direction TB
         BW[("bronze_kl_weather<br/>(Hourly Weather Logs)")]
         BT[("bronze_rapidkl_transit<br/>(Trips, Routes, Schedules)")]
     end
 
-    subgraph Silver["🥈 Silver Layer (Cleaned & Validated)"]
+    subgraph Silver["Silver Layer (Cleaned & Validated)"]
         direction TB
         SW[("silver_kl_weather<br/>(Deduplicated, Validated)")]
         ST[("silver_rapidkl_transit<br/>(Hour-aligned, In-bounds)")]
         SQ[("silver_quarantine_transit<br/>(Dead-Letter Quarantine)")]
     end
 
-    subgraph Gold["🥇 Gold Layer (Aggregates & Metrics)"]
+    subgraph Gold["Gold Layer (Aggregates & Metrics)"]
         G[("gold_route_rain_impact_metrics<br/>(Delay Index, Rain Severity)")]
     end
 
@@ -47,7 +47,7 @@ flowchart LR
 
 ---
 
-## 🥉 Step 1: Bronze Layer (Raw Ingestion)
+## Step 1: Bronze Layer (Raw Ingestion)
 
 The **Bronze Layer** ingests raw source feeds with minimal transformations into **Delta Lake**, strictly capturing raw fidelity while appending pipeline audit metadata.
 
@@ -69,7 +69,7 @@ The **Bronze Layer** ingests raw source feeds with minimal transformations into 
 
 ---
 
-## 🥈 Step 2: Silver Layer (Data Cleaning & Validation)
+## Step 2: Silver Layer (Data Cleaning & Validation)
 
 The **Silver Layer** enforces schemas, performs data deduplication, applies geospatial boundary filtering, handles GTFS timestamp anomalies, and implements an automated **quarantine dead-letter pattern**.
 
@@ -95,7 +95,7 @@ Records that violate data contracts are split from the main pipeline and written
 
 ---
 
-## 📁 Repository Structure
+## Repository Structure
 
 ```
 Klang Valley Transit & Weather Data Pipeline/
@@ -131,7 +131,7 @@ Klang Valley Transit & Weather Data Pipeline/
 
 ---
 
-## 🚀 How to Run on Databricks
+## How to Run on Databricks
 
 ### 1. Link Repo via Databricks Repos / Git Folders
 1. In your Databricks workspace sidebar, open **Workspace → Repos (or Git Folders)**.
@@ -151,20 +151,20 @@ Klang Valley Transit & Weather Data Pipeline/
 
 ---
 
-## 📊 Data Dictionary
+## Data Dictionary
 
-### 🥉 Bronze Tables
+### Bronze Tables
 * `bronze_kl_weather`: Raw hourly Open-Meteo weather logs (`observation_time`, `temperature_2m`, `precipitation`, `rain`, etc.).
 * `bronze_rapidkl_transit`: Raw linked GTFS feeds (`route_id`, `trip_id`, `stop_id`, `stop_name`, `stop_lat`, `stop_lon`, `arrival_time`, etc.).
 
-### 🥈 Silver Tables
+### Silver Tables
 * `silver_kl_weather`: Cleaned, validated, deduplicated hourly weather readings within Malaysia meteorological thresholds.
 * `silver_rapidkl_transit`: Cleaned transit schedules with validated Klang Valley GPS bounds and `scheduled_hour_aligned`.
 * `silver_quarantine_transit`: Invalid/corrupted records separated with diagnostic column `_quarantine_reason` and `_quarantined_at`.
 
 ---
 
-## ⏭️ Next Step: Gold Layer (Analytical Aggregates & Rain Impact)
+## Next Step: Gold Layer (Analytical Aggregates & Rain Impact)
 
 In **Step 3 (Gold Layer)**, we will:
 1. Join `silver_rapidkl_transit` with `silver_kl_weather` on date and `scheduled_hour_aligned`.

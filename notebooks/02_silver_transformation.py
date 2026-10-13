@@ -1,7 +1,7 @@
 # Databricks notebook source
 # MAGIC %md
-# MAGIC # 🚌 Klang Valley Transit & Weather Data Pipeline
-# MAGIC ## 🥈 Step 2: Silver Layer (Data Cleaning & Validation)
+# MAGIC # Klang Valley Transit & Weather Data Pipeline
+# MAGIC ## Step 2: Silver Layer (Data Cleaning & Validation)
 # MAGIC
 # MAGIC **Objective:** Clean, validate, and align raw Bronze data before analytical joins.
 # MAGIC
@@ -240,7 +240,7 @@ display(
 # COMMAND ----------
 
 # MAGIC %md
-# MAGIC ### 🥈 Silver Layer Complete!
+# MAGIC ### Silver Layer Complete
 # MAGIC
 # MAGIC Clean, validated data is now available in:
 # MAGIC 1. `silver_kl_weather` — deduplicated hourly observations with `is_rainy_hour` flag

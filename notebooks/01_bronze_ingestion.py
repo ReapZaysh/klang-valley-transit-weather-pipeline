@@ -1,7 +1,7 @@
 # Databricks notebook source
 # MAGIC %md
-# MAGIC # 🚌 Klang Valley Transit & Weather Data Pipeline
-# MAGIC ## 🥉 Step 1: Bronze Layer (Raw Ingestion)
+# MAGIC # Klang Valley Transit & Weather Data Pipeline
+# MAGIC ## Step 1: Bronze Layer (Raw Ingestion)
 # MAGIC
 # MAGIC **Objective:** Ingest raw feeds with minimal transformations into Delta Lake:
 # MAGIC 1. **Open-Meteo Weather API:** Hourly precipitation, temperature, and rain observations for Kuala Lumpur (`Lat 3.1390`, `Lon 101.6869`).
@@ -317,7 +317,7 @@ print(f"Successfully wrote {df_transit.count():,} rows to managed Delta table: {
 # COMMAND ----------
 
 # MAGIC %md
-# MAGIC ### 🚀 Bronze Layer Complete!
+# MAGIC ### Bronze Layer Complete
 # MAGIC Both raw feeds have been successfully ingested into:
 # MAGIC 1. `bronze_kl_weather`
 # MAGIC 2. `bronze_rapidkl_transit`
