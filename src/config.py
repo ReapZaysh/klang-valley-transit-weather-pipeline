@@ -78,12 +78,37 @@ class StorageConfig:
     SILVER_TRANSIT_TABLE: str = "silver_rapidkl_transit"
     SILVER_QUARANTINE_TABLE: str = "silver_quarantine_transit"
 
-    # Gold layer — joined & aggregated analytical table
+    # Gold layer — joined & aggregated analytical tables
     SILVER_JOINED_TABLE: str = "silver_rapidkl_weather_delays"
-    GOLD_METRICS_TABLE: str = "gold_route_rain_impact_metrics"
+    GOLD_ROUTE_PERFORMANCE_TABLE: str = "gold_route_weather_performance"
+    GOLD_METRICS_TABLE: str = "gold_route_weather_performance"
+    GOLD_ROUTE_PERFORMANCE_PATH: str = "dbfs:/FileStore/klang_valley_transit/gold/route_weather_performance"
+
+
+@dataclass(frozen=True)
+class AnalyticsConfig:
+    """
+    Thresholds and configurations for Gold Layer business aggregations.
+    Defines peak hour bands and rainfall intensity criteria.
+    """
+    # Rainfall classification thresholds (mm/hr)
+    HEAVY_RAIN_THRESHOLD_MM: float = 5.0
+    LIGHT_RAIN_THRESHOLD_MM: float = 0.5
+
+    # Peak hour windows (24-hour clock)
+    # Morning peak: 7:00 AM – 9:59 AM
+    # Evening peak: 5:00 PM – 7:59 PM (17:00 – 19:59)
+    MORNING_PEAK_HOURS: List[int] = field(default_factory=lambda: [7, 8, 9])
+    EVENING_PEAK_HOURS: List[int] = field(default_factory=lambda: [17, 18, 19])
+
+    # Realistic urban bus speed filtering bounds (km/h)
+    SPEED_LOWER_BOUND_KMH: float = 3.0
+    SPEED_UPPER_BOUND_KMH: float = 90.0
 
 
 WEATHER_CONFIG = WeatherConfig()
 TRANSIT_CONFIG = TransitConfig()
 VALIDATION_CONFIG = ValidationConfig()
 STORAGE_CONFIG = StorageConfig()
+ANALYTICS_CONFIG = AnalyticsConfig()
+

@@ -5,7 +5,7 @@
 [![PySpark](https://img.shields.io/badge/Engine-PySpark%203.5-E25A1C?logo=apachespark&logoColor=white)](#)
 [![Python](https://img.shields.io/badge/Python-3.10+-3776AB?logo=python&logoColor=white)](#)
 
-A production-grade Databricks PySpark pipeline built on the **Medallion Architecture (Delta Lake)** that ingests, cleans, and joins **RapidKL public bus transit feeds** with **Kuala Lumpur meteorological data** to measure route performance and delay metrics during heavy rainfall events.
+A production-grade Databricks PySpark pipeline built on the **Medallion Architecture (Delta Lake)** that ingests, cleans, and joins **RapidKL public bus transit feeds** with **Kuala Lumpur meteorological data** to measure route performance, rainfall delay indices, and peak hour reliability metrics.
 
 ---
 
@@ -32,8 +32,8 @@ flowchart LR
         SQ[("silver_quarantine_transit<br/>(Dead-Letter Quarantine)")]
     end
 
-    subgraph Gold["Gold Layer (Aggregates & Metrics)"]
-        G[("gold_route_rain_impact_metrics<br/>(Delay Index, Rain Severity)")]
+    subgraph Gold["Gold Layer (Business Aggregations)"]
+        G[("gold_route_weather_performance<br/>(Rainfall Delay Index & Peak Reliability)")]
     end
 
     W -->|requests / JSON| BW
@@ -95,13 +95,35 @@ Records that violate data contracts are split from the main pipeline and written
 
 ---
 
+## Step 3: Gold Layer (Business Aggregations)
+
+The **Gold Layer** transforms cleaned Silver tables into an analytics-ready business data product that quantifies the impact of tropical precipitation and rush-hour congestion across the RapidKL bus network.
+
+### 1. Temporal Join on Hourly Timestamp
+* Joins `silver_rapidkl_transit` and `silver_kl_weather` where `scheduled_hour_aligned == HOUR(weather_timestamp)`.
+* Binds each scheduled transit stop event with exact meteorological conditions (rainfall intensity, temperature, humidity).
+
+### 2. Hop-by-Hop Transit Distance & Speeds
+* Calculates spherical distance between consecutive bus stops using the **Haversine formula**.
+* Computes travel time durations from GTFS departure times and derives operating speed (`km/h`).
+
+### 3. Key Business Performance Indicators
+* **Rainfall Delay Index:** Evaluates route operating speeds during heavy downpours (`precipitation > 5.0 mm/hr`) vs. clear weather baselines (`precipitation <= 0.5 mm/hr`). Computes absolute speed drop (`km/h`), percentage speed drop (`%`), and travel delay multiplier.
+* **Peak Hour Reliability:** Evaluates route operating speeds during Morning Peak (`7:00 AM – 9:59 AM`) and Evening Peak (`5:00 PM – 7:59 PM`) relative to off-peak periods, generating a normalized peak reliability score.
+
+### 4. Output Managed Delta Table
+* Clean aggregate metrics are saved to `gold_route_weather_performance`.
+
+---
+
 ## Repository Structure
 
 ```
 Klang Valley Transit & Weather Data Pipeline/
 ├── notebooks/
 │   ├── 01_bronze_ingestion.py         # Bronze Raw Ingestion Notebook
-│   └── 02_silver_transformation.py    # Silver Cleaning, Validation & Quarantine Notebook
+│   ├── 02_silver_transformation.py    # Silver Cleaning, Validation & Quarantine Notebook
+│   └── 03_gold_aggregations.py        # Gold Business Aggregations & Analytics Notebook
 ├── src/
 │   ├── config.py                      # Centralized coordinates, bounding box & table names
 │   ├── utils/
@@ -114,12 +136,14 @@ Klang Valley Transit & Weather Data Pipeline/
 │   └── transformation/
 │       ├── __init__.py
 │       ├── silver_weather.py          # Weather deduplication & bounds validation
-│       └── silver_transit.py          # Transit deduplication, bounding box & quarantine
+│       ├── silver_transit.py          # Transit deduplication, bounding box & quarantine
+│       └── gold_aggregations.py       # Hop speeds, hourly joins, Delay Index & KPIs
 ├── scripts/
 │   └── fetch_raw_samples.py           # Local script to fetch & cache raw data samples
 ├── tests/
 │   ├── __init__.py
-│   └── test_raw_ingestion.py          # Unit & schema validation tests
+│   ├── test_raw_ingestion.py          # Bronze ingestion unit & schema validation tests
+│   └── test_gold_aggregations.py      # Gold KPIs, Haversine & Delay Index unit tests
 ├── data/
 │   └── raw/                           # Downloaded sample data (JSON & GTFS CSVs)
 │       ├── weather/
@@ -149,6 +173,11 @@ Klang Valley Transit & Weather Data Pipeline/
 2. Click **Run All** to execute deduplication, bounding box validation, and quarantine routing.
 3. The notebook writes clean data to `silver_kl_weather` and `silver_rapidkl_transit`, while routing bad records to `silver_quarantine_transit`.
 
+### 4. Run Gold Aggregations Notebook
+1. Open `notebooks/03_gold_aggregations`.
+2. Click **Run All** to calculate hop distances, temporal weather joins, Rainfall Delay Indices, and peak reliability metrics.
+3. The notebook persists `gold_route_weather_performance` and runs analytical queries.
+
 ---
 
 ## Data Dictionary
@@ -162,11 +191,20 @@ Klang Valley Transit & Weather Data Pipeline/
 * `silver_rapidkl_transit`: Cleaned transit schedules with validated Klang Valley GPS bounds and `scheduled_hour_aligned`.
 * `silver_quarantine_transit`: Invalid/corrupted records separated with diagnostic column `_quarantine_reason` and `_quarantined_at`.
 
----
-
-## Next Step: Gold Layer (Analytical Aggregates & Rain Impact)
-
-In **Step 3 (Gold Layer)**, we will:
-1. Join `silver_rapidkl_transit` with `silver_kl_weather` on date and `scheduled_hour_aligned`.
-2. Classify rain event intensities (e.g. *Clear*, *Light Rain*, *Heavy Downpour / Thunderstorm*).
-3. Compute schedule density, route vulnerability, and rain-impact performance metrics across Klang Valley transit corridors.
+### Gold Table
+* `gold_route_weather_performance`:
+  - `route_id`, `route_short_name`, `route_long_name`, `route_type`: Route identifiers.
+  - `total_trips_analyzed`, `total_stops_analyzed`: Schedule volume indicators.
+  - `avg_scheduled_speed_kmh`: Baseline scheduled operating speed.
+  - `avg_speed_clear_kmh`: Operating speed during clear weather (`precipitation <= 0.5 mm`).
+  - `avg_speed_rain_kmh`: Operating speed during any rainfall (`precipitation > 0.5 mm`).
+  - `avg_speed_heavy_rain_kmh`: Operating speed during heavy downpours (`precipitation > 5.0 mm`).
+  - `speed_drop_heavy_rain_kmh`: Absolute speed reduction during heavy downpours.
+  - `speed_drop_heavy_rain_pct`: Percentage speed reduction during heavy downpours.
+  - `rainfall_delay_index`: Travel time multiplier under heavy rain vs. clear weather.
+  - `avg_speed_morning_peak_kmh`: Speed during morning rush hour (7–9 AM).
+  - `avg_speed_evening_peak_kmh`: Speed during evening rush hour (5–7 PM).
+  - `avg_speed_off_peak_kmh`: Speed during off-peak hours.
+  - `morning_peak_reliability_pct`, `evening_peak_reliability_pct`: Speed retention percentages during rush hours.
+  - `overall_peak_reliability_score`: Consolidated peak reliability score.
+  - `_layer`, `_gold_processed_at`: Pipeline governance metadata.
